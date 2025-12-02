@@ -25,7 +25,9 @@ export function analyzeIgsGeometry(
 
   const profileType = detectProfileType(size);
   const dimensions = extractDimensions(size, profileType);
-  const { paths, totalLength, pierceCount } = extractCuttingPaths(group);
+  const { paths, totalLength, pierceCount } = extractCuttingPaths(group, {
+    maxVertices: 200000,
+  });
 
   return {
     fileName,
@@ -76,7 +78,10 @@ function extractDimensions(
   return { ...baseDimensions, width: crossDims[0], height: crossDims[1] };
 }
 
-function extractCuttingPaths(group: THREE.Group): {
+function extractCuttingPaths(
+  group: THREE.Group,
+  options?: { maxVertices?: number }
+): {
   paths: CuttingPath[];
   totalLength: number;
   pierceCount: number;
@@ -85,12 +90,25 @@ function extractCuttingPaths(group: THREE.Group): {
   let totalLength = 0;
   let pierceCount = 0;
 
+  const maxVertices = options?.maxVertices ?? 200000;
+  let processedVertices = 0;
+  let aborted = false;
+
   group.traverse((child) => {
+    if (aborted) return;
+
     if (child instanceof THREE.LineSegments || child instanceof THREE.Line) {
       const geometry = child.geometry;
       if (geometry instanceof THREE.BufferGeometry) {
         const positions = geometry.getAttribute("position");
         if (positions) {
+          // Если геометрия слишком сложная, прекращаем дальнейший анализ,
+          // чтобы не блокировать основной поток
+          if (processedVertices + positions.count > maxVertices) {
+            aborted = true;
+            return;
+          }
+
           let pathLength = 0;
 
           for (let i = 1; i < positions.count; i++) {
@@ -103,6 +121,7 @@ function extractCuttingPaths(group: THREE.Group): {
           if (pathLength > 0) {
             totalLength += pathLength;
             pierceCount++;
+            processedVertices += positions.count;
           }
         }
       }
