@@ -12,7 +12,10 @@ interface IgsViewer3DProps {
 
 type TubeParams = {
   length: number;
-  radius: number;
+  isRect: boolean;
+  radius?: number;
+  width?: number;
+  height?: number;
 };
 
 function CameraAndTubeSetup({
@@ -32,8 +35,18 @@ function CameraAndTubeSetup({
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const dims = [size.x, size.y, size.z].sort((a, b) => b - a);
+
     const length = dims[0] || 1000;
-    const radius = (dims[1] || 100) / 2;
+    const crossA = dims[1] || 100;
+    const crossB = dims[2] || crossA;
+    const ratio = Math.min(crossA, crossB) / Math.max(crossA, crossB);
+    const isRect = ratio < 0.95;
+
+    const baseParams: TubeParams = { length, isRect };
+
+    const params: TubeParams = isRect
+      ? { ...baseParams, width: crossA, height: crossB }
+      : { ...baseParams, radius: crossA / 2 };
 
     const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
     const distance = Math.max(length / (2 * Math.tan(fov / 2)) * 1.4, 200);
@@ -41,7 +54,7 @@ function CameraAndTubeSetup({
     camera.position.set(distance, distance * 0.4, distance);
     camera.lookAt(0, 0, 0);
 
-    onParamsChange({ length, radius });
+    onParamsChange(params);
   }, [model, camera, resetTrigger, onParamsChange]);
 
   return null;
@@ -77,11 +90,23 @@ function TubeMesh({
   params: TubeParams;
   showWireframe: boolean;
 }) {
-  const { length, radius } = params;
+  const { length, radius, width, height, isRect } = params;
+
+  const tubeLength = length || 1000;
+
+  const roundRadius = radius ?? Math.max(width ?? 100, height ?? 100) / 2;
+  const rectWidth = width ?? roundRadius * 2;
+  const rectHeight = height ?? roundRadius * 2;
 
   return (
     <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <cylinderGeometry args={[radius, radius, length, 64, 1, true]} />
+      {isRect ? (
+        <boxGeometry args={[rectWidth, rectHeight, tubeLength]} />
+      ) : (
+        <cylinderGeometry
+          args={[roundRadius, roundRadius, tubeLength, 64, 1, true]}
+        />
+      )}
       <meshStandardMaterial
         color="#b0b0b0"
         metalness={0.1}
@@ -105,6 +130,7 @@ function Scene({
 }) {
   const [params, setParams] = useState<TubeParams>({
     length: 1000,
+    isRect: false,
     radius: 50,
   });
 
