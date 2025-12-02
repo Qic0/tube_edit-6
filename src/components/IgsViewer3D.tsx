@@ -10,50 +10,44 @@ interface IgsViewer3DProps {
   diagnostics?: string[];
 }
 
-function ModelDisplay({ model }: { model: THREE.Group }) {
-  const groupRef = useRef<THREE.Group>(null);
+type TubeParams = {
+  length: number;
+  radius: number;
+};
+
+function CameraAndTubeSetup({
+  model,
+  resetTrigger,
+  onParamsChange,
+}: {
+  model: THREE.Group | null;
+  resetTrigger: number;
+  onParamsChange: (params: TubeParams) => void;
+}) {
   const { camera } = useThree();
 
   useEffect(() => {
-    if (groupRef.current && model) {
-      // Clear previous children
-      while (groupRef.current.children.length > 0) {
-        groupRef.current.remove(groupRef.current.children[0]);
-      }
+    if (!model) return;
 
-      // Clone and add new model
-      const clonedModel = model.clone();
-      groupRef.current.add(clonedModel);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const dims = [size.x, size.y, size.z].sort((a, b) => b - a);
+    const length = dims[0] || 1000;
+    const radius = (dims[1] || 100) / 2;
 
-      // Center the model
-      const box = new THREE.Box3().setFromObject(clonedModel);
-      const center = box.getCenter(new THREE.Vector3());
-      clonedModel.position.sub(center);
+    const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+    const distance = Math.max(length / (2 * Math.tan(fov / 2)) * 1.4, 200);
 
-      // Move model up so it sits on the grid
-      const size = box.getSize(new THREE.Vector3());
-      clonedModel.position.y += size.y / 2;
+    camera.position.set(distance, distance * 0.4, distance);
+    camera.lookAt(0, 0, 0);
 
-      // Adjust camera to fit model
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
-      const cameraDistance = Math.max(maxDim / (2 * Math.tan(fov / 2)) * 2, 100);
+    onParamsChange({ length, radius });
+  }, [model, camera, resetTrigger, onParamsChange]);
 
-      camera.position.set(cameraDistance * 0.8, cameraDistance * 0.5, cameraDistance * 0.8);
-      camera.lookAt(0, size.y / 4, 0);
-      
-      console.log("Model positioned, size:", size, "camera distance:", cameraDistance);
-    }
-  }, [model, camera]);
-
-  return <group ref={groupRef} />;
+  return null;
 }
 
-function CameraController({
-  resetTrigger,
-}: {
-  resetTrigger: number;
-}) {
+function CameraController({ resetTrigger }: { resetTrigger: number }) {
   const controlsRef = useRef<any>(null);
 
   useEffect(() => {
@@ -65,14 +59,36 @@ function CameraController({
   return (
     <OrbitControls
       ref={controlsRef}
-      enablePan={true}
-      enableZoom={true}
-      enableRotate={true}
+      enablePan
+      enableZoom
+      enableRotate
       minDistance={10}
       maxDistance={5000}
       target={[0, 0, 0]}
       makeDefault
     />
+  );
+}
+
+function TubeMesh({
+  params,
+  showWireframe,
+}: {
+  params: TubeParams;
+  showWireframe: boolean;
+}) {
+  const { length, radius } = params;
+
+  return (
+    <mesh rotation={[Math.PI / 2, 0, 0]}>
+      <cylinderGeometry args={[radius, radius, length, 64, 1, true]} />
+      <meshStandardMaterial
+        color="#b0b0b0"
+        metalness={0.1}
+        roughness={0.5}
+        wireframe={showWireframe}
+      />
+    </mesh>
   );
 }
 
@@ -87,69 +103,41 @@ function Scene({
   showGrid: boolean;
   showWireframe: boolean;
 }) {
-  // Apply wireframe mode if enabled
-  useEffect(() => {
-    if (model) {
-      model.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const material = child.material as THREE.MeshStandardMaterial;
-          if (material.wireframe !== undefined) {
-            material.wireframe = showWireframe;
-          }
-        }
-      });
-    }
-  }, [model, showWireframe]);
+  const [params, setParams] = useState<TubeParams>({
+    length: 1000,
+    radius: 50,
+  });
 
   return (
     <>
-      {/* Main lighting setup - enhanced for metallic materials */}
-      <ambientLight intensity={0.5} />
-      <directionalLight
-        position={[10, 20, 10]}
-        intensity={1.5}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-      />
-      <directionalLight position={[-10, 10, -5]} intensity={0.8} />
-      <directionalLight position={[0, -10, 0]} intensity={0.3} />
-      
-      {/* Fill lights for better detail visibility */}
-      <pointLight position={[20, 5, 20]} intensity={0.5} color="#ffffff" />
-      <pointLight position={[-20, 5, -20]} intensity={0.5} color="#ffffff" />
-      <hemisphereLight args={["#ffffff", "#444444", 0.6]} />
+      <ambientLight intensity={0.9} />
+      <directionalLight position={[300, 400, 200]} intensity={0.6} />
 
-      {/* Model */}
-      {model && (
-        <Center>
-          <ModelDisplay model={model} />
-        </Center>
-      )}
-
-      {/* Ground plane for shadow */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
-        <planeGeometry args={[2000, 2000]} />
-        <shadowMaterial opacity={0.3} />
-      </mesh>
-
-      {/* Grid */}
       {showGrid && (
         <Grid
-          args={[2000, 2000]}
+          args={[1000, 1000]}
           cellSize={50}
           cellThickness={0.5}
-          cellColor="#666"
+          cellColor="#9ca3af"
           sectionSize={250}
           sectionThickness={1}
-          sectionColor="#888"
-          fadeDistance={3000}
+          sectionColor="#6b7280"
+          fadeDistance={2000}
           fadeStrength={1}
           followCamera={false}
           position={[0, 0, 0]}
         />
       )}
 
+      <Center>
+        <TubeMesh params={params} showWireframe={showWireframe} />
+      </Center>
+
+      <CameraAndTubeSetup
+        model={model}
+        resetTrigger={resetTrigger}
+        onParamsChange={setParams}
+      />
       <CameraController resetTrigger={resetTrigger} />
     </>
   );
@@ -183,7 +171,9 @@ export function IgsViewer3D({ model, diagnostics }: IgsViewer3DProps) {
           size="icon"
           onClick={() => setShowWireframe(!showWireframe)}
           title="Каркас"
-          className={showWireframe ? "bg-primary text-primary-foreground" : ""}
+          className={
+            showWireframe ? "bg-primary text-primary-foreground" : ""
+          }
         >
           <Box className="w-4 h-4" />
         </Button>
@@ -193,7 +183,9 @@ export function IgsViewer3D({ model, diagnostics }: IgsViewer3DProps) {
             size="icon"
             onClick={() => setShowDiagnostics(!showDiagnostics)}
             title="Диагностика"
-            className={showDiagnostics ? "bg-primary text-primary-foreground" : ""}
+            className={
+              showDiagnostics ? "bg-primary text-primary-foreground" : ""
+            }
           >
             <Eye className="w-4 h-4" />
           </Button>
@@ -214,7 +206,9 @@ export function IgsViewer3D({ model, diagnostics }: IgsViewer3DProps) {
           <h4 className="font-semibold mb-2">Диагностика</h4>
           <ul className="space-y-1">
             {diagnostics.map((d, i) => (
-              <li key={i} className="text-muted-foreground">{d}</li>
+              <li key={i} className="text-muted-foreground">
+                {d}
+              </li>
             ))}
           </ul>
         </div>
@@ -226,20 +220,16 @@ export function IgsViewer3D({ model, diagnostics }: IgsViewer3DProps) {
       </div>
 
       <Canvas
-        camera={{ position: [300, 200, 300], fov: 50, near: 0.1, far: 10000 }}
-        gl={{ 
-          antialias: true, 
-          alpha: false,
+        camera={{ position: [600, 300, 600], fov: 45, near: 1, far: 10000 }}
+        gl={{
+          antialias: true,
           powerPreference: "high-performance",
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.2,
         }}
-        shadows
-        dpr={[1, 2]}
+        dpr={[1, 1.5]}
       >
-        <color attach="background" args={["#e8e8e8"]} />
-        <Scene 
-          model={model} 
+        <color attach="background" args={["#e5e7eb"]} />
+        <Scene
+          model={model}
           resetTrigger={resetTrigger}
           showGrid={showGrid}
           showWireframe={showWireframe}
